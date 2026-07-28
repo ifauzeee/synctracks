@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}SyncTracks — Upload{% endblock %}
+
+{% block content %}
+<div class="hero">
+    <h1>Match Your Local Music</h1>
+    <p class="hero-sub">
+        Upload a CSV/JSON file from Spotify (or other source) along with your local music collection.
+        The system automatically matches tracks using 4 levels of comparison.
+    </p>
+</div>
+
+<div class="upload-grid">
+    <!-- Source -->
+    <div class="upload-section" id="source-section">
+        <div class="upload-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#3B82F6" stroke-width="1.5">
+                <path d="M9 18V5l12-2v13"/>
+                <circle cx="6" cy="18" r="3"/>
+                <circle cx="18" cy="16" r="3"/>
+            </svg>
+        </div>
+        <h3>Source Tracks</h3>
+        <p class="upload-desc">CSV/JSON from Spotify, Apple Music, etc.</p>
+
+        <div class="drop-zone" id="source-drop">
+            <span class="drop-text" id="source-text">Click or drop a file here</span>
+            <input type="file" id="source-input" accept=".csv,.json" hidden>
+        </div>
+        <div class="file-info" id="source-info" style="display:none">
+            <span class="file-name" id="source-name"></span>
+            <button class="btn-icon" id="source-remove" title="Remove">&times;</button>
+        </div>
+    </div>
+
+    <!-- Local -->
+    <div class="upload-section" id="local-section">
+        <div class="upload-icon">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#4CAF50" stroke-width="1.5">
+                <path d="M9 17H5a2 2 0 0 0-2 2v2a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-2a2 2 0 0 0-2-2h-4"/>
+                <polyline points="12 12 12 2 8 6"/>
+                <line x1="12" y1="12" x2="16" y2="8"/>
+            </svg>
+        </div>
+        <h3>Local Tracks</h3>
+        <p class="upload-desc">CSV/JSON from your scanned music folder.</p>
+
+        <div class="drop-zone" id="local-drop">
+            <span class="drop-text" id="local-text">Click or drop a file here</span>
+            <input type="file" id="local-input" accept=".csv,.json" hidden>
+        </div>
+        <div class="file-info" id="local-info" style="display:none">
+            <span class="file-name" id="local-name"></span>
+            <button class="btn-icon" id="local-remove" title="Remove">&times;</button>
+        </div>
+    </div>
+</div>
+
+<button class="btn-primary" id="match-btn" disabled>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <path d="M22 12h-4l-3 9L9 3l-3 9H2"/>
+    </svg>
+    Start Matching
+</button>
+
+<!-- Progress overlay -->
+<div class="progress-overlay" id="progress-overlay" style="display:none">
+    <div class="progress-body">
+        <h3 id="progress-phase">Processing…</h3>
+        <div class="progress-bar">
+            <div class="progress-fill" id="progress-fill"></div>
+        </div>
+        <p class="progress-pct" id="progress-pct">0%</p>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const SOURCE = {
+    input: document.getElementById('source-input'),
+    drop: document.getElementById('source-drop'),
+    text: document.getElementById('source-text'),
+    info: document.getElementById('source-info'),
+    name: document.getElementById('source-name'),
+    remove: document.getElementById('source-remove'),
+};
+const LOCAL = {
+    input: document.getElementById('local-input'),
+    drop: document.getElementById('local-drop'),
+    text: document.getElementById('local-text'),
+    info: document.getElementById('local-info'),
+    name: document.getElementById('local-name'),
+    remove: document.getElementById('local-remove'),
+};
+const matchBtn = document.getElementById('match-btn');
+const overlay = document.getElementById('progress-overlay');
+const progressFill = document.getElementById('progress-fill');
+const progressPct = document.getElementById('progress-pct');
+const progressPhase = document.getElementById('progress-phase');
+
+let sourceFile = null;
+let localFile = null;
+
+function setupDropZone(cfg, label) {
+    cfg.drop.addEventListener('click', () => cfg.input.click());
+    cfg.drop.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        cfg.drop.classList.add('drag-over');
+    });
+    cfg.drop.addEventListener('dragleave', () => {
+        cfg.drop.classList.remove('drag-over');
+    });
+    cfg.drop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        cfg.drop.classList.remove('drag-over');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) handleFile(cfg, files[0], label);
+    });
+    cfg.input.addEventListener('change', () => {
+        if (cfg.input.files.length > 0) handleFile(cfg, cfg.input.files[0], label);
+    });
+    cfg.remove.addEventListener('click', () => removeFile(cfg));
+}
+
+function handleFile(cfg, file, label) {
+    const ext = '.' + file.name.split('.').pop().toLowerCase();
+    if (!['.csv', '.json'].includes(ext)) {
+        alert('Only CSV or JSON files are supported.');
+        return;
+    }
+    if (label === 'source') sourceFile = file;
+    else localFile = file;
+    cfg.drop.style.display = 'none';
+    cfg.info.style.display = 'flex';
+    cfg.name.textContent = file.name;
+    updateMatchBtn();
+}
+
+function removeFile(cfg) {
+    if (cfg === SOURCE) sourceFile = null;
+    else localFile = null;
+    cfg.drop.style.display = '';
+    cfg.info.style.display = 'none';
+    cfg.input.value = '';
+    updateMatchBtn();
+}
+
+function updateMatchBtn() {
+    matchBtn.disabled = !(sourceFile && localFile);
+}
+
+setupDropZone(SOURCE, 'source');
+setupDropZone(LOCAL, 'local');
+
+// ── matching ──
+
+matchBtn.addEventListener('click', async () => {
+    if (!sourceFile || !localFile) return;
+
+    overlay.style.display = 'flex';
+    matchBtn.disabled = true;
+    progressFill.style.width = '0%';
+    progressPct.textContent = '0%';
+    progressPhase.textContent = 'Uploading…';
+
+    const form = new FormData();
+    form.append('source', sourceFile);
+    form.append('local', localFile);
+
+    let sid;
+    try {
+        const resp = await fetch('/upload', { method: 'POST', body: form });
+        const data = await resp.json();
+        if (data.error) { throw new Error(data.error); }
+        sid = data.session_id;
+    } catch (err) {
+        alert('Upload failed: ' + err.message);
+        overlay.style.display = 'none';
+        matchBtn.disabled = false;
+        return;
+    }
+
+    // SSE progress
+    const evtSource = new EventSource('/progress/' + sid);
+    evtSource.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        const pct = data.progress || 0;
+        progressFill.style.width = pct + '%';
+        progressPct.textContent = pct + '%';
+        progressPhase.textContent = data.phase || '';
+
+        if (data.status === 'complete') {
+            evtSource.close();
+            window.location.href = '/results/' + sid;
+        } else if (data.status === 'error') {
+            evtSource.close();
+            alert('Error: ' + (data.phase || 'Unknown error'));
+            overlay.style.display = 'none';
+            matchBtn.disabled = false;
+        }
+    };
+    evtSource.onerror = () => {
+        evtSource.close();
+        const poll = setInterval(async () => {
+            try {
+                const r = await fetch(`/session/${sid}/status`);
+                const s = await r.json();
+                if (s.status === 'complete') {
+                    clearInterval(poll);
+                    window.location.href = '/results/' + sid;
+                } else if (s.status === 'error') {
+                    clearInterval(poll);
+                    alert('Error: ' + s.phase);
+                    overlay.style.display = 'none';
+                    matchBtn.disabled = false;
+                } else {
+                    progressFill.style.width = (s.progress || 0) + '%';
+                    progressPct.textContent = (s.progress || 0) + '%';
+                    progressPhase.textContent = s.phase || '';
+                }
+            } catch (_) {}
+        }, 500);
+    };
+});
+</script>
+{% endblock %}

@@ -1,0 +1,223 @@
+{% extends "base.html" %}
+{% block title %}SyncTracks — Results{% endblock %}
+
+{% block content %}
+<a href="/" class="back-link">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M19 12H5M12 19l-7-7 7-7"/>
+    </svg>
+    Upload Again
+</a>
+
+{% if error %}
+<div class="error-block">
+    <h2>Error</h2>
+    <p>{{ error }}</p>
+    {% if traceback %}
+    <pre>{{ traceback }}</pre>
+    {% endif %}
+</div>
+{% elif result %}
+
+<div class="results-header">
+    <h1>Match Results</h1>
+    <p>{{ result.total_source }} source tracks · {{ result.total_local }} local tracks</p>
+</div>
+
+<!-- Stats -->
+<div class="stats-row">
+    <div class="stat-item match">
+        <div class="stat-value">{{ result.matched_count }}</div>
+        <div class="stat-label">Matched</div>
+    </div>
+    <div class="stat-item source">
+        <div class="stat-value">{{ result.unmatched_source_count }}</div>
+        <div class="stat-label">Source Unmatched</div>
+    </div>
+    <div class="stat-item local">
+        <div class="stat-value">{{ result.unmatched_local_count }}</div>
+        <div class="stat-label">Local Unmatched</div>
+    </div>
+    <div class="stat-item pct">
+        <div class="stat-value">{{ result.match_percentage }}%</div>
+        <div class="stat-label">Match Rate</div>
+    </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs" id="tabs">
+    <button class="tab-btn active" data-tab="matched">
+        Matched
+        <span class="tab-badge">{{ result.matched_count }}</span>
+    </button>
+    <button class="tab-btn" data-tab="unmatched-source">
+        Unmatched Source
+        <span class="tab-badge">{{ result.unmatched_source_count }}</span>
+    </button>
+    <button class="tab-btn" data-tab="unmatched-local">
+        Unmatched Local
+        <span class="tab-badge">{{ result.unmatched_local_count }}</span>
+    </button>
+</div>
+
+<!-- Matched tab -->
+<div class="tab-pane active" id="pane-matched">
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Source Artist</th>
+                    <th>Source Title</th>
+                    <th>Local Artist</th>
+                    <th>Local Title</th>
+                    <th>File</th>
+                </tr>
+            </thead>
+            <tbody id="matched-body">
+            {% for row in result.matched %}
+                <tr class="match-row">
+                    <td>{{ loop.index }}</td>
+                    <td>{{ row.source_artist }}</td>
+                    <td>{{ row.source_title }}</td>
+                    <td>{{ row.local_artist }}</td>
+                    <td>{{ row.local_title }}</td>
+                    <td><span class="local-path">{{ row.local_filepath }}</span></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="pagination" id="matched-pager"></div>
+    </div>
+</div>
+
+<!-- Unmatched Source tab -->
+<div class="tab-pane" id="pane-unmatched-source">
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Artist</th>
+                    <th>Title</th>
+                    <th>Album</th>
+                </tr>
+            </thead>
+            <tbody id="usource-body">
+            {% for row in result.unmatched_source %}
+                <tr class="usource-row">
+                    <td>{{ loop.index }}</td>
+                    <td>{{ row.artist }}</td>
+                    <td>{{ row.title }}</td>
+                    <td>{{ row.album }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="pagination" id="usource-pager"></div>
+    </div>
+</div>
+
+<!-- Unmatched Local tab -->
+<div class="tab-pane" id="pane-unmatched-local">
+    <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Artist</th>
+                    <th>Title</th>
+                    <th>Album</th>
+                    <th>File</th>
+                </tr>
+            </thead>
+            <tbody id="ulocal-body">
+            {% for row in result.unmatched_local %}
+                <tr class="ulocal-row">
+                    <td>{{ loop.index }}</td>
+                    <td>{{ row.artist }}</td>
+                    <td>{{ row.title }}</td>
+                    <td>{{ row.album }}</td>
+                    <td><span class="local-path">{{ row.filepath }}</span></td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        <div class="pagination" id="ulocal-pager"></div>
+    </div>
+</div>
+
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// ── tabs ──
+document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById('pane-' + btn.dataset.tab).classList.add('active');
+    });
+});
+
+// ── pagination ──
+const PAGE_SIZE = 50;
+
+function setupPagination(tableId, pagerId, rowsSelector) {
+    const rows = document.querySelectorAll(rowsSelector);
+    const pager = document.getElementById(pagerId);
+    if (!rows.length || !pager) return;
+
+    const totalPages = Math.ceil(rows.length / PAGE_SIZE);
+    let currentPage = 1;
+
+    function showPage(page) {
+        currentPage = page;
+        rows.forEach((row, i) => {
+            row.style.display = (i >= (page-1)*PAGE_SIZE && i < page*PAGE_SIZE) ? '' : 'none';
+        });
+        renderPager();
+    }
+
+    function renderPager() {
+        pager.innerHTML = '';
+        const prev = document.createElement('button');
+        prev.className = 'page-btn';
+        prev.textContent = '\u2190';
+        prev.disabled = currentPage === 1;
+        prev.addEventListener('click', () => showPage(currentPage - 1));
+        pager.appendChild(prev);
+
+        const start = Math.max(1, currentPage - 2);
+        const end = Math.min(totalPages, currentPage + 2);
+        for (let i = start; i <= end; i++) {
+            const btn = document.createElement('button');
+            btn.className = 'page-btn' + (i === currentPage ? ' active' : '');
+            btn.textContent = i;
+            btn.addEventListener('click', () => showPage(i));
+            pager.appendChild(btn);
+        }
+
+        const next = document.createElement('button');
+        next.className = 'page-btn';
+        next.textContent = '\u2192';
+        next.disabled = currentPage === totalPages;
+        next.addEventListener('click', () => showPage(currentPage + 1));
+        pager.appendChild(next);
+
+        const info = document.createElement('span');
+        info.className = 'page-info';
+        info.textContent = `${(currentPage-1)*PAGE_SIZE+1}\u2013${Math.min(currentPage*PAGE_SIZE, rows.length)} of ${rows.length}`;
+        pager.appendChild(info);
+    }
+
+    showPage(1);
+}
+
+setupPagination('matched-body', 'matched-pager', '.match-row');
+setupPagination('usource-body', 'usource-pager', '.usource-row');
+setupPagination('ulocal-body', 'ulocal-pager', '.ulocal-row');
+</script>
+{% endblock %}
